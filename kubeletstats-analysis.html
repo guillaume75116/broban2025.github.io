@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>K8s Pod Network IO Metric Analysis</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 5px;
+        }
+        h3 {
+            color: #7f8c8d;
+        }
+        code {
+            background-color: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            color: #e74c3c;
+        }
+        pre {
+            background-color: #282c34;
+            color: #abb2bf;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        pre code {
+            background-color: transparent;
+            color: #abb2bf;
+            padding: 0;
+        }
+        .info-box {
+            background-color: #e8f4f8;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .note {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #3498db;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #3498db;
+        }
+        ul {
+            padding-left: 25px;
+        }
+        li {
+            margin: 8px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="index.html" class="back-link">← Back to Home</a>
+        
+        <h1>How k8s.pod.network.io is Computed in Kubeletstats Receiver</h1>
+        
+        <div class="info-box">
+            <strong>Quick Summary:</strong> The <code>k8s.pod.network.io</code> metric tracks network I/O at the pod level by extracting <code>rxBytes</code> (received) and <code>txBytes</code> (transmitted) from the Kubernetes kubelet's <code>/stats/summary</code> API endpoint.
+        </div>
+
+        <h2>Overview</h2>
+        <p>
+            The <code>k8s.pod.network.io</code> metric is computed by the <strong>kubeletstats receiver</strong> 
+            in the OpenTelemetry Collector Contrib repository. This metric tracks network I/O (input/output) 
+            at the pod level in Kubernetes clusters.
+        </p>
+        <ul>
+            <li><strong>Repository:</strong> <a href="https://github.com/open-telemetry/opentelemetry-collector-contrib" target="_blank">opentelemetry-collector-contrib</a></li>
+            <li><strong>Component:</strong> <code>receiver/kubeletstatsreceiver</code></li>
+        </ul>
+
+        <h2>Metric Definition</h2>
+        <table>
+            <tr>
+                <th>Property</th>
+                <th>Value</th>
+            </tr>
+            <tr>
+                <td>Name</td>
+                <td><code>k8s.pod.network.io</code></td>
+            </tr>
+            <tr>
+                <td>Description</td>
+                <td>Pod network IO (bytes transferred)</td>
+            </tr>
+            <tr>
+                <td>Unit</td>
+                <td>Bytes (By)</td>
+            </tr>
+            <tr>
+                <td>Type</td>
+                <td>Sum (Cumulative, Monotonic)</td>
+            </tr>
+            <tr>
+                <td>Value Type</td>
+                <td>Int64</td>
+            </tr>
+            <tr>
+                <td>Stability</td>
+                <td>Development</td>
+            </tr>
+        </table>
+
+        <p><strong>Attributes:</strong></p>
+        <ul>
+            <li><code>interface</code>: Name of the network interface (e.g., "eth0", "sit0")</li>
+            <li><code>direction</code>: Direction of data flow - either "receive" or "transmit"</li>
+        </ul>
+
+        <h2>Data Source</h2>
+        <p>
+            The metric is derived from the Kubernetes kubelet <code>/stats/summary</code> API endpoint, 
+            which provides statistics about pods and nodes. Here's the relevant data structure:
+        </p>
+        <pre><code>{
+  "pods": [
+    {
+      "network": {
+        "time": "2020-04-20T22:52:20Z",
+        "name": "eth0",
+        "rxBytes": 948305362,
+        "txBytes": 12542068,
+        "interfaces": [
+          {
+            "name": "eth0",
+            "rxBytes": 948305362,
+            "txBytes": 12542068
+          }
+        ]
+      }
+    }
+  ]
+}</code></pre>
+
+        <h2>Computation Flow</h2>
+        
+        <h3>1. Data Collection Entry Point</h3>
+        <p><strong>File:</strong> <code>receiver/kubeletstatsreceiver/internal/kubelet/metrics.go</code></p>
+        <p>The process begins with the <code>MetricsData()</code> function that iterates through all pods in the summary.</p>
+
+        <h3>2. Pod Statistics Processing</h3>
+        <p><strong>File:</strong> <code>receiver/kubeletstatsreceiver/internal/kubelet/accumulator.go</code></p>
+        <p>For each pod, the <code>podStats()</code> method calls <code>addNetworkMetrics()</code> to process network statistics.</p>
+
+        <h3>3. Network Metrics Computation</h3>
+        <p><strong>File:</strong> <code>receiver/kubeletstatsreceiver/internal/kubelet/network.go</code></p>
+        <p>The <code>addNetworkMetrics()</code> function extracts network data and creates metric data points.</p>
+
+        <h2>Two Modes of Operation</h2>
+        <table>
+            <tr>
+                <th>Mode</th>
+                <th>Configuration</th>
+                <th>Behavior</th>
+                <th>Cardinality</th>
+            </tr>
+            <tr>
+                <td>Default</td>
+                <td><code>collect_all_network_interfaces.pod: false</code></td>
+                <td>Only default interface (eth0)</td>
+                <td>Lower</td>
+            </tr>
+            <tr>
+                <td>All Interfaces</td>
+                <td><code>collect_all_network_interfaces.pod: true</code></td>
+                <td>All interfaces (eth0, sit0, etc.)</td>
+                <td>Higher</td>
+            </tr>
+        </table>
+
+        <h2>Configuration Example</h2>
+        <p>To enable collection from all network interfaces:</p>
+        <pre><code>receivers:
+  kubeletstats:
+    collection_interval: 10s
+    auth_type: "serviceAccount"
+    endpoint: "${env:K8S_NODE_NAME}:10250"
+    collect_all_network_interfaces:
+      pod: true
+      node: true</code></pre>
+
+        <div class="note">
+            <strong>Note:</strong> Enabling <code>collect_all_network_interfaces</code> increases metric cardinality 
+            due to the additional <code>interface</code> attribute dimension.
+        </div>
+
+        <h2>Resulting Metrics</h2>
+        <p>For each pod, the receiver generates <strong>two data points per interface</strong>:</p>
+        <ol>
+            <li><strong>Receive direction:</strong> <code>k8s.pod.network.io{direction="receive", interface="eth0"}</code> = rxBytes value</li>
+            <li><strong>Transmit direction:</strong> <code>k8s.pod.network.io{direction="transmit", interface="eth0"}</code> = txBytes value</li>
+        </ol>
+
+        <h2>Key Implementation Details</h2>
+        
+        <h3>Data Extraction</h3>
+        <ul>
+            <li>The kubeletstats receiver queries the kubelet API at <code>/stats/summary</code></li>
+            <li>For each pod, it extracts <code>PodStats.Network</code> containing:
+                <ul>
+                    <li><code>RxBytes</code>: Total bytes received</li>
+                    <li><code>TxBytes</code>: Total bytes transmitted</li>
+                    <li><code>Name</code>: Default interface name</li>
+                    <li><code>Interfaces[]</code>: Array of per-interface statistics</li>
+                </ul>
+            </li>
+        </ul>
+
+        <h3>Metric Type</h3>
+        <ul>
+            <li><strong>Cumulative:</strong> Values represent total bytes since pod start</li>
+            <li><strong>Monotonic:</strong> Values only increase (or reset on pod restart)</li>
+            <li><strong>Int64:</strong> Values are converted from <code>uint64</code> to <code>int64</code></li>
+        </ul>
+
+        <h3>Resource Attributes</h3>
+        <p>Each metric is associated with pod resource attributes:</p>
+        <ul>
+            <li><code>k8s.pod.uid</code>: Unique identifier</li>
+            <li><code>k8s.pod.name</code>: Pod name</li>
+            <li><code>k8s.namespace.name</code>: Namespace</li>
+        </ul>
+
+        <h2>Related Metrics</h2>
+        <p>The same logic applies to:</p>
+        <ul>
+            <li><code>k8s.pod.network.errors</code> - Network errors (RxErrors, TxErrors)</li>
+            <li><code>k8s.node.network.io</code> - Node-level network I/O</li>
+            <li><code>k8s.node.network.errors</code> - Node-level network errors</li>
+        </ul>
+
+        <h2>Summary</h2>
+        <p>The <code>k8s.pod.network.io</code> metric computation is straightforward:</p>
+        <ol>
+            <li><strong>Source:</strong> Kubelet <code>/stats/summary</code> API provides <code>rxBytes</code> and <code>txBytes</code></li>
+            <li><strong>Processing:</strong> The receiver extracts these values from <code>PodStats.Network</code></li>
+            <li><strong>Output:</strong> Two separate metric data points (receive and transmit)</li>
+            <li><strong>Labeling:</strong> Each data point includes interface name and direction as attributes</li>
+            <li><strong>Aggregation:</strong> Cumulative counters representing total bytes since pod start</li>
+        </ol>
+
+        <div class="info-box">
+            <strong>Bottom Line:</strong> The metric directly reflects the underlying Linux network statistics from the pod's 
+            network namespace as reported by the Kubernetes kubelet.
+        </div>
+
+        <h2>Additional Resources</h2>
+        <ul>
+            <li><a href="kubeletstats-network-metric-analysis.md">Full Markdown Documentation</a></li>
+            <li><a href="https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/kubeletstatsreceiver" target="_blank">Kubeletstats Receiver GitHub</a></li>
+            <li><a href="https://kubernetes.io/docs/reference/instrumentation/node-metrics/" target="_blank">Kubernetes Node Metrics</a></li>
+        </ul>
+
+        <p style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; color: #7f8c8d; font-size: 0.9em;">
+            Documentation generated based on analysis of OpenTelemetry Collector Contrib repository
+        </p>
+    </div>
+</body>
+</html>
