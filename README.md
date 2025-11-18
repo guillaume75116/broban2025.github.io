@@ -11,6 +11,7 @@ Documentation on how the `k8s.pod.network.io` metric is computed in the OpenTele
 - **[kubeletstats-network-metric-analysis.md](kubeletstats-network-metric-analysis.md)** - Comprehensive technical documentation in Markdown format
 - **[kubeletstats-analysis.html](kubeletstats-analysis.html)** - Formatted HTML page for web viewing
 - **[kubeletstats-flow-diagram.md](kubeletstats-flow-diagram.md)** - Visual ASCII flow diagram showing the complete computation process
+- **[kubeletstats-cumulative-behavior.md](kubeletstats-cumulative-behavior.md)** - Detailed analysis of cumulative monotonic sum behavior and rollover
 
 #### Key Topics Covered:
 - Metric definition and data source

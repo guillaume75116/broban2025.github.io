@@ -19,6 +19,8 @@ The `k8s.pod.network.io` metric is computed by the **kubeletstats receiver** in 
   - `interface`: Name of the network interface (e.g., "eth0", "sit0")
   - `direction`: Direction of data flow - either "receive" or "transmit"
 
+> **Note**: For detailed information about the cumulative monotonic sum behavior, including rollover behavior and code locations, see [kubeletstats-cumulative-behavior.md](kubeletstats-cumulative-behavior.md)
+
 ## Data Source
 
 The metric is derived from the Kubernetes kubelet `/stats/summary` API endpoint, which provides statistics about pods and nodes. The relevant data structure is:
@@ -283,6 +285,20 @@ Each metric is associated with pod resource attributes:
 - **Network metrics logic**: `receiver/kubeletstatsreceiver/internal/kubelet/network.go:17-74`
 - **Metric definition**: `receiver/kubeletstatsreceiver/metadata.yaml` (lines for k8s.pod.network.io)
 - **Test expectations**: `receiver/kubeletstatsreceiver/testdata/scraper/test_scraper_expected.yaml`
+
+## Cumulative Monotonic Sum Behavior
+
+This metric uses **cumulative** aggregation, meaning:
+- Values represent the **total bytes since pod start**, not the delta since last observation
+- The counter is **monotonic** (only increases, never decreases during pod lifetime)
+- Source data is `uint64` from Linux kernel counters, converted to `int64`
+- Maximum value: ~18.4 exabytes (would take ~467 years at 10 Gbps to overflow)
+- On pod restart, the counter resets to 0 (tracked via start timestamp)
+
+**For detailed analysis**: See [kubeletstats-cumulative-behavior.md](kubeletstats-cumulative-behavior.md) for:
+- Complete rollover behavior explanation
+- Exact code locations showing cumulative implementation
+- Practical examples and calculations
 
 ## Related Metrics
 
